@@ -71,6 +71,17 @@ async function run() {
             }
         })
 
+        app.get('/parcels/:id', async(req, res) => {
+            try {
+                const id  = req.params.id
+                const parcel = await parcelCollection.findOne({_id: new ObjectId(id)})
+
+                res.send(parcel)
+            } catch (error) {
+                console.log(error)
+            }
+        })
+
         app.delete('/parcels/:id', async(req, res) => {
             try {
                 const id = req.params.id
