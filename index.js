@@ -6,6 +6,8 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 dotenv.config()
 
+const stripe = require('stripe')(process.env.PAYMENT_STRIPE_KEY)
+
 const app = express()
 const port = process.env.PORT || 5000
 
@@ -33,6 +35,7 @@ async function run() {
 
         const db = client.db('parcelDB')
         const parcelCollection = db.collection('parcels')
+        const paymentCollection = db.collection('payments')
 
         app.get('/parcels', async (req, res) => {
             const parcels = await parcelCollection.find().toArray()
@@ -71,10 +74,10 @@ async function run() {
             }
         })
 
-        app.get('/parcels/:id', async(req, res) => {
+        app.get('/parcels/:id', async (req, res) => {
             try {
-                const id  = req.params.id
-                const parcel = await parcelCollection.findOne({_id: new ObjectId(id)})
+                const id = req.params.id
+                const parcel = await parcelCollection.findOne({ _id: new ObjectId(id) })
 
                 res.send(parcel)
             } catch (error) {
@@ -82,16 +85,89 @@ async function run() {
             }
         })
 
-        app.delete('/parcels/:id', async(req, res) => {
+        app.delete('/parcels/:id', async (req, res) => {
             try {
                 const id = req.params.id
 
-                const result = await parcelCollection.deleteOne({_id: new ObjectId(id)})
+                const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) })
 
                 res.send(result)
             } catch (error) {
                 console.log(error)
-                res.send({message: 'failed to Delete the parcel'})
+                res.send({ message: 'failed to Delete the parcel' })
+            }
+        })
+
+        app.get('/payments', async(req, res) => {
+            try {
+                const userEmail = req.query.email
+                
+                const query = userEmail ? {email: userEmail} : {}
+                const options = {sort: {paidAt: -1}}
+
+                const payments = await paymentCollection.find(query, options).toArray()
+                res.send(payments)
+
+            } catch (error) {
+                console.log(error)
+                res.send({message: 'getting payments failed'})
+            }
+        })
+
+        app.post('/payments', async (req, res) => {
+            try {
+                const { parcelId, email, amount, paymentMethod, transectionId } = req.body
+
+                const updateResult = await parcelCollection.updateOne(
+                    { _id: new ObjectId(parcelId) },
+                    {
+                        $set: {
+                            paymentStatus: 'paid'
+                        }
+                    }
+
+                )
+
+                if (updateResult.modifiedCount === 0) {
+                    return res.send({message: 'parcel not found ot already paid'})
+                }
+
+                const paymentDoc = {
+                    parcelId,
+                    email,
+                    amount,
+                    paymentMethod,
+                    transectionId,
+                    paidAtString: new Date().toISOString(),
+                    paidAt: new Date()
+                }
+
+                const paymentResult = await paymentCollection.insertOne(paymentDoc)
+
+                res.send({
+                    message: 'payment recorded and parcel',
+                    insertedId: paymentResult.insertedId
+                })
+
+
+            } catch (error) {
+
+            }
+        })
+
+        app.post('/create-payment-intent', async (req, res) => {
+
+            const amountInCents = req.body.amountInCents
+
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount: amountInCents,
+                    currency: 'usd',
+                    payment_method_types: ['card']
+                })
+                res.json({ clientSecret: paymentIntent.client_secret })
+            } catch (error) {
+                res.json({ error: error.message })
             }
         })
 
